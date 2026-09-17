@@ -2,9 +2,171 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Hello</title>
+<title>Cross-Stitch</title>
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #000000;
+  }
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #wrap {
+    width: min(94vw, 560px);
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+</style>
 </head>
 <body>
-<h1>Hello, my name is Frank Lin</h1>
+<div id="wrap"><canvas id="c"></canvas></div>
+<script>
+  const cols = 64, rows = 84;
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+  const wrap = document.getElementById("wrap");
+
+  function dist(x1, y1, x2, y2) { return Math.hypot(x1 - x2, y1 - y2); }
+  function inEllipse(x, y, cx, cy, rx, ry) { return ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1; }
+
+  // --- head / hair ---
+  const headCx = 32, headCy = 30, headRx = 17, headRy = 28;
+  function inHead(x, y) { return inEllipse(x, y, headCx, headCy, headRx, headRy); }
+  function inHair(x, y) {
+    if (!inHead(x, y)) return false;
+    if (y < 15) return true;
+    if (y < 34 && (x < 21 || x > 43)) return true;
+    return false;
+  }
+  function inEar(x, y) { return dist(x, y, 15, 32) <= 2.6 || dist(x, y, 49, 32) <= 2.6; }
+
+  // --- facial features ---
+  function inEyebrow(x, y) { return inEllipse(x, y, 25.5, 27.3, 3.2, 1.1) || inEllipse(x, y, 38.5, 27.3, 3.2, 1.1); }
+  function inEye(x, y) { return inEllipse(x, y, 25.5, 31.3, 2, 1.2) || inEllipse(x, y, 38.5, 31.3, 2, 1.2); }
+  function inUnderEyeShadow(x, y) { return inEllipse(x, y, 25.5, 33, 2.2, 0.9) || inEllipse(x, y, 38.5, 33, 2.2, 0.9); }
+  function inNoseShadow(x, y) { return inEllipse(x, y, 34.5, 39, 1.7, 8); }
+  function inNoseHighlight(x, y) { return inEllipse(x, y, 30.8, 37.5, 1.3, 7.5); }
+  function inNoseTipHi(x, y) { return inEllipse(x, y, 32, 44, 1.4, 1.6); }
+  function inNostril(x, y) { return inEllipse(x, y, 30, 45.5, 0.7, 0.6) || inEllipse(x, y, 33.6, 45.5, 0.7, 0.6); }
+  function inMustacheShadow(x, y) { return y >= 46.5 && y <= 49 && x >= 26 && x <= 38; }
+  function inMouthLine(x, y) { return inEllipse(x, y, 32, 49.6, 5, 0.9); }
+  function inLowerLipHi(x, y) { return inEllipse(x, y, 32, 51.2, 3, 1); }
+  function inChinHi(x, y) { return inEllipse(x, y, 32, 55, 3.5, 2.6); }
+  function inForeheadHi(x, y) { return inEllipse(x, y, 29.5, 20, 6.2, 4.2); }
+  function inCheekHi(x, y) { return inEllipse(x, y, 23.5, 38, 3, 4.2); }
+
+  function jawEdgeDist(x, y) {
+    const d = Math.sqrt(((x - headCx) / headRx) ** 2 + ((y - headCy) / headRy) ** 2);
+    return (1 - d) * headRy;
+  }
+  function inJawStubble(x, y) { return y > 44 && inHead(x, y) && jawEdgeDist(x, y) < 2.6; }
+  function inFace(x, y) { return inHead(x, y) && !inHair(x, y); }
+
+  // --- neck / shirt / bowtie / jacket ---
+  function inNeckShadow(x, y) { return y >= 58 && y < 61 && x >= 27 && x <= 37; }
+  function inNeck(x, y) { return y >= 58 && y < 62 && x >= 26 && x <= 38; }
+  function shirtEdges(y) { const half = 5 + (y - 62) * 0.62; return [32 - half, 32 + half]; }
+  function inShirt(x, y) { if (y < 62) return false; const [l, r] = shirtEdges(y); return x >= l && x <= r; }
+  function wingHeight(dx) { return Math.max(0, 3.4 * (1 - dx / 8)); }
+  function inBowtie(x, y) {
+    if (y < 65 || y > 73) return false;
+    const dx = x - 32;
+    if (x >= 30 && x <= 34) return true;
+    if (dx > 0) return dx <= 8 && Math.abs(y - 69.5) <= wingHeight(dx);
+    return -dx <= 8 && Math.abs(y - 69.5) <= wingHeight(-dx);
+  }
+
+  function skinGradient(x) {
+    const t = Math.min(1, Math.max(0, (x - 20) / (44 - 20)));
+    if (t < 0.25) return "T5";
+    if (t < 0.5) return "T4";
+    if (t < 0.75) return "T3";
+    return "T2";
+  }
+
+  function toneAt(c, r) {
+    const x = c + 0.5, y = r + 0.5;
+    if (inBowtie(x, y)) return "T1";
+    if (y >= 62) return inShirt(x, y) ? "white" : "T1";
+    if (inNostril(x, y)) return "T1";
+    if (inMouthLine(x, y)) return "T1";
+    if (inLowerLipHi(x, y)) return "T5";
+    if (inMustacheShadow(x, y)) return "T2";
+    if (inChinHi(x, y)) return "T5";
+    if (inNoseTipHi(x, y)) return "T5";
+    if (inNoseHighlight(x, y)) return "T4";
+    if (inNoseShadow(x, y)) return "T2";
+    if (inEye(x, y)) return "T1";
+    if (inUnderEyeShadow(x, y)) return "T2";
+    if (inEyebrow(x, y)) return "T1";
+    if (inNeckShadow(x, y)) return "T2";
+    if (inNeck(x, y)) return "T3";
+    if (inJawStubble(x, y)) return "T2";
+    if (inForeheadHi(x, y)) return "T5";
+    if (inCheekHi(x, y)) return "T5";
+    if (inEar(x, y)) return "T3";
+    if (inHair(x, y)) return "T1";
+    if (inFace(x, y)) return skinGradient(x);
+    return "T2";
+  }
+
+  const PALETTE = {
+    T1: "#12224e",
+    T2: "#24418f",
+    T3: "#3f68ba",
+    T4: "#7aa4dc",
+    T5: "#bcd7ea",
+    white: "#ffffff",
+  };
+
+  function drawStitch(cx, cy, size, color, lw) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lw;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(cx - size / 2, cy - size / 2);
+    ctx.lineTo(cx + size / 2, cy + size / 2);
+    ctx.moveTo(cx + size / 2, cy - size / 2);
+    ctx.lineTo(cx - size / 2, cy + size / 2);
+    ctx.stroke();
+  }
+
+  function render() {
+    const dpr = window.devicePixelRatio || 1;
+    const displayWidth = wrap.clientWidth;
+    const cell = displayWidth / cols;
+    const displayHeight = cell * rows;
+
+    canvas.style.width = displayWidth + "px";
+    canvas.style.height = displayHeight + "px";
+    canvas.width = Math.round(displayWidth * dpr);
+    canvas.height = Math.round(displayHeight * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(0, 0, displayWidth, displayHeight);
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const tone = toneAt(c, r);
+        const cx = (c + 0.5) * cell, cy = (r + 0.5) * cell;
+        drawStitch(cx, cy, cell * 0.65, PALETTE[tone], cell * 0.3);
+      }
+    }
+  }
+
+  render();
+  let resizeTimer;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(render, 100);
+  });
+</script>
 </body>
 </html>
