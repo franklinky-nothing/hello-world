@@ -125,6 +125,14 @@
     white: "#ffffff",
   };
 
+  // tones don't depend on layout, so compute them once up front
+  const tones = [];
+  for (let r = 0; r < rows; r++) {
+    const row = [];
+    for (let c = 0; c < cols; c++) row.push(toneAt(c, r));
+    tones.push(row);
+  }
+
   function drawStitch(cx, cy, size, color, lw) {
     ctx.strokeStyle = color;
     ctx.lineWidth = lw;
@@ -136,6 +144,47 @@
     ctx.lineTo(cx - size / 2, cy + size / 2);
     ctx.stroke();
   }
+
+  // --- cursor spotlight: a springy, trailing "magnifier" that enlarges
+  // nearby stitches up to 50%, fading smoothly out over a medium radius ---
+  const RADIUS = 3.5; // in grid units (~7 stitches across)
+  const spot = {
+    x: cols / 2, y: rows / 2,   // current eased position (grid units)
+    tx: cols / 2, ty: rows / 2, // target position (follows the pointer)
+    vx: 0, vy: 0,
+    influence: 0, targetInfluence: 0, // fades the whole effect in/out
+  };
+
+  function smoothstep(t) { return t * t * (3 - 2 * t); }
+  function falloff(d) {
+    if (d >= RADIUS) return 0;
+    return smoothstep(1 - d / RADIUS);
+  }
+
+  function updateSpot() {
+    const stiffness = 0.12, damping = 0.72;
+    spot.vx = (spot.vx + (spot.tx - spot.x) * stiffness) * damping;
+    spot.vy = (spot.vy + (spot.ty - spot.y) * stiffness) * damping;
+    spot.x += spot.vx;
+    spot.y += spot.vy;
+    spot.influence += (spot.targetInfluence - spot.influence) * 0.12;
+  }
+
+  function pointerToGrid(clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
+    return [
+      ((clientX - rect.left) / rect.width) * cols,
+      ((clientY - rect.top) / rect.height) * rows,
+    ];
+  }
+
+  wrap.addEventListener("mousemove", (e) => {
+    const [gx, gy] = pointerToGrid(e.clientX, e.clientY);
+    spot.tx = gx;
+    spot.ty = gy;
+    spot.targetInfluence = 1;
+  });
+  wrap.addEventListener("mouseleave", () => { spot.targetInfluence = 0; });
 
   function render() {
     const dpr = window.devicePixelRatio || 1;
@@ -154,19 +203,20 @@
 
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        const tone = toneAt(c, r);
         const cx = (c + 0.5) * cell, cy = (r + 0.5) * cell;
-        drawStitch(cx, cy, cell * 0.65, PALETTE[tone], cell * 0.3);
+        const d = Math.hypot(c + 0.5 - spot.x, r + 0.5 - spot.y);
+        const scale = 1 + 1.0 * spot.influence * falloff(d);
+        drawStitch(cx, cy, cell * 0.65 * scale, PALETTE[tones[r][c]], cell * 0.3 * scale);
       }
     }
   }
 
-  render();
-  let resizeTimer;
-  window.addEventListener("resize", () => {
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(render, 100);
-  });
+  function frame() {
+    updateSpot();
+    render();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
 </script>
 </body>
 </html>
